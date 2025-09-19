@@ -10,7 +10,8 @@ import datetime
 from scipy.interpolate import griddata
 from plotly.subplots import make_subplots
 import scipy.stats as stats
-
+from prophet import Prophet
+from prophet.plot import plot_plotly
 # --- Page Configuration ---
 st.set_page_config(
     page_title="ARGO Float Data Explorer",
@@ -320,13 +321,16 @@ else:
     st.success(f"Data loaded successfully. Contains {df['Float_ID'].nunique()} floats and {len(df):,} measurements.")
     
     # Create tabs for different sections
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 , tab7, tab8, tab9 = st.tabs([
         "Global Overview", 
         "Float Analysis", 
         "Time Series", 
         "Correlations", 
         "Distributions",
-        "Advanced"
+        "Anomaly Detection",
+        "Drift Analysis",
+        "Time Series Forecasting",
+        "Data Interploation"
     ])
     
     with tab1:
@@ -749,6 +753,294 @@ else:
                         mime="text/csv"
                     )
         st.markdown("</div>", unsafe_allow_html=True)
+    
+    with tab7:
+        st.markdown("<div class='tab-container'>", unsafe_allow_html=True)
+        st.header("Float Drift Analysis")
+        st.info("Visualize the movement trajectory of individual floats over time on a geospatial map.")
+        
+        if not df.empty:
+            available_floats = df['Float_ID'].unique()
+            selected_float_drift = st.selectbox("Select Float ID for drift analysis:", available_floats)
+            
+            float_data_drift = df[df['Float_ID'] == selected_float_drift].sort_values('Date')
+            float_data_drift.dropna(subset=['Latitude', 'Longitude'], inplace=True)
+            
+            if not float_data_drift.empty:
+                # Map showing float trajectory
+                fig_drift = px.line_mapbox(
+                    float_data_drift,
+                    lat="Latitude",
+                    lon="Longitude",
+                    hover_name="Date",
+                    hover_data={"Latitude": True, "Longitude": True, "Pres_adj(dbar)": True},
+                    color_discrete_sequence=["#FF6B6B"],
+                    zoom=2,
+                    height=500
+                )
+                # Add start and end markers
+                # Add start marker
+                fig_drift.add_trace(go.Scattermapbox(
+                    lat=[float_data_drift['Latitude'].iloc[0]],
+                    lon=[float_data_drift['Longitude'].iloc[0]],
+                    mode='markers',
+                    marker=dict(size=12, color='green'),
+                    text=["Start"],
+                    hoverinfo="text"
+                ))
+
+                # Add end marker
+                fig_drift.add_trace(go.Scattermapbox(
+                    lat=[float_data_drift['Latitude'].iloc[-1]],
+                    lon=[float_data_drift['Longitude'].iloc[-1]],
+                    mode='markers',
+                    marker=dict(size=12, color='red'),
+                    text=["End"],
+                    hoverinfo="text"
+                ))
+
+                
+                fig_drift.update_layout(
+                    mapbox_style="carto-darkmatter",
+                    margin=dict(l=0, r=0, t=30, b=0)
+                )
+                st.plotly_chart(fig_drift, use_container_width=True)
+                
+                # Show summary metrics
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Drift Points", len(float_data_drift))
+                with col2:
+                    lat_range = float_data_drift['Latitude'].max() - float_data_drift['Latitude'].min()
+                    st.metric("Latitude Range", f"{lat_range:.2f}°")
+                with col3:
+                    lon_range = float_data_drift['Longitude'].max() - float_data_drift['Longitude'].min()
+                    st.metric("Longitude Range", f"{lon_range:.2f}°")
+            else:
+                st.info("No latitude and longitude data available for this float.")
+        else:
+            st.info("No data loaded.")
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
+    with tab8:
+        st.markdown("<div class='tab-container'>", unsafe_allow_html=True)
+        st.header("Forecast Future Values")
+        st.info("Forecast future temperature, salinity, or pressure of selected floats using time series models.")
+
+        if not df.empty:
+            available_floats = df['Float_ID'].unique()
+            selected_float_forecast = st.selectbox("Select Float ID for forecasting:", available_floats)
+
+            float_data_forecast = df[df['Float_ID'] == selected_float_forecast].sort_values('Date')
+            float_data_forecast.dropna(subset=['Date'], inplace=True)
+
+            if len(float_data_forecast) > 10:
+                parameter = st.selectbox("Select parameter to forecast:", 
+                                        ["Temperature", "Salinity", "Pressure"])
+
+                if parameter == "Temperature":
+                    y_col = "Temp_adj(C)"
+                    color = "#FF6B6B"
+                elif parameter == "Salinity":
+                    y_col = "Psal_adj(psu)"
+                    color = "#4ECDC4"
+                else:
+                    y_col = "Pres_adj(dbar)"
+                    color = "#45B7D1"
+
+                forecast_period = st.slider("Select forecast horizon (days):", 7, 365, 30, 7)
+
+                # Prepare data for Prophet
+                ts_df = float_data_forecast[['Date', y_col]].rename(columns={'Date': 'ds', y_col: 'y'})
+                
+                model = Prophet(daily_seasonality=True, yearly_seasonality=True)
+                model.fit(ts_df)
+
+                future = model.make_future_dataframe(periods=forecast_period)
+                forecast = model.predict(future)
+
+                # --- Graph 1: Prophet default interactive forecast ---
+                fig_forecast = plot_plotly(model, forecast)
+                fig_forecast.update_layout(
+                    title=f"{parameter} Forecast for Float {selected_float_forecast}",
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    height=600
+                )
+                st.plotly_chart(fig_forecast, use_container_width=True)
+
+                # --- Graph 2: Overlay historical + forecast values ---
+                import plotly.graph_objects as go
+
+                fig2 = go.Figure()
+
+                # Historical data
+                fig2.add_trace(go.Scatter(
+                    x=ts_df['ds'],
+                    y=ts_df['y'],
+                    mode='lines+markers',
+                    name='Historical',
+                    line=dict(color=color),
+                ))
+
+                # Forecasted data
+                fig2.add_trace(go.Scatter(
+                    x=forecast['ds'],
+                    y=forecast['yhat'],
+                    mode='lines',
+                    name='Forecast',
+                    line=dict(color='yellow', dash='dash'),
+                ))
+
+                # Confidence interval
+                fig2.add_trace(go.Scatter(
+                    x=forecast['ds'].tolist() + forecast['ds'][::-1].tolist(),
+                    y=forecast['yhat_upper'].tolist() + forecast['yhat_lower'][::-1].tolist(),
+                    fill='toself',
+                    fillcolor='rgba(255, 255, 0, 0.2)',
+                    line=dict(color='rgba(255,255,255,0)'),
+                    hoverinfo="skip",
+                    showlegend=True,
+                    name='Confidence Interval'
+                ))
+
+                fig2.update_layout(
+                    title=f"{parameter} Historical + Forecast for Float {selected_float_forecast}",
+                    xaxis_title="Date",
+                    yaxis_title=parameter,
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    height=500
+                )
+
+                st.subheader("Historical vs Forecasted Values")
+                st.plotly_chart(fig2, use_container_width=True)
+
+                # Show forecast table
+                st.subheader("Forecasted Values (next days)")
+                forecast_display = forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].tail(forecast_period)
+                forecast_display.rename(columns={
+                    'ds': 'Date', 'yhat': 'Forecast', 'yhat_lower': 'Lower Bound', 'yhat_upper': 'Upper Bound'
+                }, inplace=True)
+                st.dataframe(forecast_display.style.format({
+                    'Forecast': '{:.2f}', 'Lower Bound': '{:.2f}', 'Upper Bound': '{:.2f}'
+                }))
+            else:
+                st.info("Not enough data points for forecasting (minimum 10 required).")
+        else:
+            st.info("No data loaded.")
+
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    with tab9:
+        st.markdown("<div class='tab-container'>", unsafe_allow_html=True)
+        st.header("Gap Filling / Missing Data Interpolation")
+        st.info("Visualize original time series with missing values and see how interpolation fills them.")
+
+        if not df.empty:
+            available_floats = df['Float_ID'].unique()
+            selected_float_gap = st.selectbox("Select Float ID for gap filling:", available_floats)
+
+            float_data_gap = df[df['Float_ID'] == selected_float_gap].sort_values('Date')
+            float_data_gap.dropna(subset=['Date'], inplace=True)
+
+            if len(float_data_gap) > 5:
+                parameter = st.selectbox("Select parameter to interpolate:", 
+                                        ["Temperature", "Salinity", "Pressure"])
+
+                if parameter == "Temperature":
+                    y_col = "Temp_adj(C)"
+                    color_original = "#FF6B6B"
+                    color_filled = "#FFD93D"
+                elif parameter == "Salinity":
+                    y_col = "Psal_adj(psu)"
+                    color_original = "#4ECDC4"
+                    color_filled = "#FFD93D"
+                else:
+                    y_col = "Pres_adj(dbar)"
+                    color_original = "#45B7D1"
+                    color_filled = "#FFD93D"
+
+                # Prepare time series
+                ts_gap = float_data_gap[['Date', y_col]].set_index('Date').sort_index()
+                
+                # Count missing before
+                missing_before = ts_gap[y_col].isna().sum()
+
+                # Interpolation
+                ts_filled = ts_gap.interpolate(method='linear', limit_direction='both')
+
+                missing_after = ts_filled[y_col].isna().sum()
+
+                # Find interpolated points
+                interpolated_mask = ts_gap[y_col].isna()
+
+                # Plot
+                import plotly.graph_objects as go
+                fig_gap = go.Figure()
+
+                # Original data (gaps visible)
+                fig_gap.add_trace(go.Scatter(
+                    x=ts_gap.index,
+                    y=ts_gap[y_col],
+                    mode='markers+lines',
+                    name='Original',
+                    line=dict(color=color_original),
+                    marker=dict(size=6, symbol='circle')
+                ))
+
+                # Filled data
+                fig_gap.add_trace(go.Scatter(
+                    x=ts_filled.index,
+                    y=ts_filled[y_col],
+                    mode='lines',
+                    name='Filled',
+                    line=dict(color=color_filled, width=2, dash='dash')
+                ))
+
+                # Highlight interpolated points
+                fig_gap.add_trace(go.Scatter(
+                    x=ts_filled.index[interpolated_mask],
+                    y=ts_filled[y_col][interpolated_mask],
+                    mode='markers',
+                    name='Interpolated Points',
+                    marker=dict(size=8, color='yellow', symbol='x')
+                ))
+
+                fig_gap.update_layout(
+                    title=f"{parameter} Gap Filling for Float {selected_float_gap}",
+                    xaxis_title="Date",
+                    yaxis_title=parameter,
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    height=500
+                )
+
+                st.plotly_chart(fig_gap, use_container_width=True)
+                st.markdown(f"**Missing values before interpolation:** {missing_before}")
+                st.markdown(f"**Missing values after interpolation:** {missing_after}")
+
+                # Export filled data
+                if st.button("Export Filled Data for This Float"):
+                    export_df = float_data_gap.copy()
+                    export_df[y_col] = ts_filled[y_col].values
+                    csv = export_df.to_csv(index=False)
+                    st.download_button(
+                        label="Download CSV",
+                        data=csv,
+                        file_name=f"float_{selected_float_gap}_filled.csv",
+                        mime="text/csv"
+                    )
+            else:
+                st.info("Not enough data points for gap filling (minimum 5 required).")
+        else:
+            st.info("No data loaded.")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
 
 # Footer
 st.markdown("---")
