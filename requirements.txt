@@ -1,0 +1,7 @@
+streamlit>=1.30.0
+pandas>=2.1.0
+numpy>=1.25.0
+plotly>=5.20.0
+scipy>=1.11.0
+Pillow>=10.1.0
+streamlit-plotly-events>=0.6.1
