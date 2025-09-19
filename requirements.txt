@@ -5,3 +5,4 @@ plotly
 scipy
 Pillow
 streamlit-plotly-events
+prophet
