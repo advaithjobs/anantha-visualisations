@@ -283,7 +283,7 @@ st.image("banner.png",width="stretch")
 
 
 st.markdown("<div class='header'>", unsafe_allow_html=True)
-st.title("ARGO Float Data Explorer")
+st.title("Anantha AI Visualisations & Research Tools ")
 st.markdown("Comprehensive analysis and visualization of oceanic data from ARGO floats")
 st.markdown("</div>", unsafe_allow_html=True)
 
