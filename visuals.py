@@ -284,7 +284,7 @@ st.image("banner.png",width="stretch")
 
 st.markdown("<div class='header'>", unsafe_allow_html=True)
 st.title("Anantha AI Visualisations & Research Tools ")
-st.markdown("Comprehensive analysis and visualization of oceanic data from ARGO floats")
+st.markdown("Comprehensive analysis and visualization of oceanic data from ARGO floats .. For zero latency in the time of presentation , this is a demo running on 2 floats and 50,000 measurements")
 st.markdown("</div>", unsafe_allow_html=True)
 
 # Sidebar for controls
